@@ -1,9 +1,0 @@
-"4.22.5":
-  cluster-logging: v6.6.0
-  lifecycle-agent: v4.22.0
-  local-storage-operator: v4.22.0-202607151755
-  lvms-operator: v4.22.0
-  ptp-operator: v4.22.0-202607151755
-  redhat-oadp-operator: v1.6.0
-  sriov-fec: v2.12.0
-  sriov-network-operator: v4.22.0-202607151115
