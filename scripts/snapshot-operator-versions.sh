@@ -115,6 +115,7 @@ write_yaml() {
   local -a zstreams=("$@")
 
   {
+    echo "# Last updated: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
     for zs in "${zstreams[@]}"; do
       echo "\"${zs}\":"
       for pkg in $ALL_PACKAGES; do
@@ -147,6 +148,8 @@ write_markdown() {
 
   {
     echo "# OCP ${major_minor} CloudRAN Operator Versions"
+    echo
+    echo "Last updated: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo
 
     if [[ ${#latest[@]} -gt 0 ]]; then
