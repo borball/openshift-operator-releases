@@ -1,6 +1,6 @@
 # Last updated: 2026-07-28T17:00:42Z
 "4.20.31":
-  cluster-logging: v6.6.0
+  cluster-logging: v6.4.6
   lifecycle-agent: v4.20.5
   local-storage-operator: v4.20.0-202607180257
   lvms-operator: v4.20.1
@@ -8,7 +8,7 @@
   redhat-oadp-operator: v1.5.7
   sriov-network-operator: v4.20.0-202607171900
 "4.20.29":
-  cluster-logging: v6.6.0
+  cluster-logging: v6.4.6
   lifecycle-agent: v4.20.5
   local-storage-operator: v4.20.0-202607141720
   lvms-operator: v4.20.0
