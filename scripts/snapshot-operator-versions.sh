@@ -28,6 +28,8 @@ CERTIFIED_PACKAGES="sriov-fec"
 ALL_PACKAGES="cluster-logging lifecycle-agent local-storage-operator lvms-operator ptp-operator redhat-oadp-operator sriov-fec sriov-network-operator"
 
 OC_CATALOG="${OC_CATALOG:-oc-catalog.sh}"
+# Space-separated pkg=channel overrides (bypasses defaultChannel in catalog)
+CHANNEL_OVERRIDES="${CHANNEL_OVERRIDES:-cluster-logging=stable-6.4}"
 TODAY=$(date -u +%Y-%m-%d)
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 NOW_HOUR=$(date -u +%Y-%m-%dT%H)
@@ -72,13 +74,14 @@ extract_versions() {
   local packages="$2"
   [[ -f "$json_file" ]] || return 0
 
-  jq -rs --arg pkgs "$packages" '
+  jq -rs --arg pkgs "$packages" --arg overrides "$CHANNEL_OVERRIDES" '
     def version_key:
       split("-") | .[0] | split(".") | map(tonumber? // 0);
-    ($pkgs | split(" ")) as $wanted
+    ($overrides | split(" ") | map(select(. != "") | split("=") | {(.[0]): .[1]}) | add // {}) as $ovr
+    | ($pkgs | split(" ")) as $wanted
     | ([.[] | select(.schema=="olm.package")
         | select(.name as $n | $wanted | index($n))
-        | {(.name): .defaultChannel}] | add // {}) as $defaults
+        | {(.name): ($ovr[.name] // .defaultChannel)}] | add // {}) as $defaults
     | ([.[] | select(.schema=="olm.bundle")
         | select(.package as $p | $wanted | index($p))
         | {(.name): {
