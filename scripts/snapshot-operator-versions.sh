@@ -1,9 +1,24 @@
 #!/usr/bin/env bash
+# Daily snapshot of CloudRAN operator versions per OCP major.minor.
+#
+# Expected behaviour (1-to-1 mapping):
+#   Each OCP z-stream release maps to a fixed set of operator versions.
+#   When a NEW z-stream appears the current catalog state is captured as baseline.
+#   On subsequent days with NO new OCP release the catalog is still checked:
+#     - if operator versions match the baseline → no-op
+#     - if any version changed without a new OCP release → ALERT file created in alerts/
+#
+# Outputs per major.minor:
+#   snapshots/<mm>.yaml  – baseline versions per z-stream (machine-readable)
+#   snapshots/<mm>.md    – markdown table, latest 5 z-streams + older archive
+#   alerts/<mm>-<date>.md – created when drift is detected (no new OCP, changed version)
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 SNAPSHOTS_DIR="$REPO_DIR/snapshots"
+ALERTS_DIR="$REPO_DIR/alerts"
 
 OCP_VERSIONS="${OCP_VERSIONS:-4.18 4.20 4.22}"
 LATEST_COUNT=5
@@ -13,6 +28,8 @@ CERTIFIED_PACKAGES="sriov-fec"
 ALL_PACKAGES="cluster-logging lifecycle-agent local-storage-operator lvms-operator ptp-operator redhat-oadp-operator sriov-fec sriov-network-operator"
 
 OC_CATALOG="${OC_CATALOG:-oc-catalog.sh}"
+TODAY=$(date -u +%Y-%m-%d)
+NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 # Auth discovery for DOCKER_CONFIG (needed by opm)
 if [[ -z "${DOCKER_CONFIG:-}" ]]; then
@@ -31,6 +48,10 @@ command -v "$OC_CATALOG" >/dev/null 2>&1 || die "oc-catalog.sh not found in PATH
 command -v jq >/dev/null 2>&1 || die "jq not found"
 command -v curl >/dev/null 2>&1 || die "curl not found"
 
+# ---------------------------------------------------------------------------
+# Catalog helpers
+# ---------------------------------------------------------------------------
+
 get_latest_zstream() {
   local major_minor="$1"
   curl -fsSL "https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/latest-${major_minor}/release.txt" 2>/dev/null \
@@ -39,9 +60,9 @@ get_latest_zstream() {
 
 refresh_catalog_cache() {
   local version="$1"
-  log "Refreshing redhat-operator catalog cache for $version"
+  log "Refreshing redhat-operator catalog for $version"
   "$OC_CATALOG" -v "$version" cloudran >/dev/null 2>&1 || true
-  log "Refreshing certified-operator catalog cache for $version"
+  log "Refreshing certified-operator catalog for $version"
   "$OC_CATALOG" -v "$version" -c certified-operator versions sriov-fec >/dev/null 2>&1 || true
 }
 
@@ -77,17 +98,17 @@ extract_versions() {
 
 get_operator_versions() {
   local version="$1"
-  local redhat_json="/tmp/redhat-operator-${version}.json"
-  local certified_json="/tmp/certified-operator-${version}.json"
-
   {
-    extract_versions "$redhat_json" "$REDHAT_PACKAGES"
-    extract_versions "$certified_json" "$CERTIFIED_PACKAGES"
+    extract_versions "/tmp/redhat-operator-${version}.json" "$REDHAT_PACKAGES"
+    extract_versions "/tmp/certified-operator-${version}.json" "$CERTIFIED_PACKAGES"
   } | sort -t$'\t' -k1,1
 }
 
-# Read existing YAML data into associative arrays
-# Sets global: EXISTING_ZSTREAMS (ordered list), EXISTING_DATA[zstream:pkg]=version
+# ---------------------------------------------------------------------------
+# YAML read/write
+# ---------------------------------------------------------------------------
+
+# Sets globals: EXISTING_ZSTREAMS (ordered array), EXISTING_DATA[zstream:pkg]=version
 declare -A EXISTING_DATA
 declare -a EXISTING_ZSTREAMS
 
@@ -95,7 +116,6 @@ parse_existing_yaml() {
   local yaml_file="$1"
   EXISTING_DATA=()
   EXISTING_ZSTREAMS=()
-
   [[ -f "$yaml_file" ]] || return 0
 
   local current_zstream=""
@@ -110,19 +130,15 @@ parse_existing_yaml() {
 }
 
 write_yaml() {
-  local yaml_file="$1"
-  shift
+  local yaml_file="$1"; shift
   local -a zstreams=("$@")
-
   {
-    echo "# Last updated: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "# Last updated: ${NOW}"
     for zs in "${zstreams[@]}"; do
       echo "\"${zs}\":"
       for pkg in $ALL_PACKAGES; do
         local val="${EXISTING_DATA["${zs}:${pkg}"]:-}"
-        if [[ -n "$val" ]]; then
-          echo "  ${pkg}: ${val}"
-        fi
+        [[ -n "$val" ]] && echo "  ${pkg}: ${val}"
       done
     done
   } >"$yaml_file"
@@ -130,69 +146,89 @@ write_yaml() {
 
 write_markdown() {
   local md_file="$1"
-  local major_minor="$2"
-  shift 2
+  local major_minor="$2"; shift 2
   local -a zstreams=("$@")
 
-  local -a latest=()
-  local -a older=()
+  local -a latest=() older=()
   local i=0
   for zs in "${zstreams[@]}"; do
-    if (( i < LATEST_COUNT )); then
-      latest+=("$zs")
-    else
-      older+=("$zs")
-    fi
+    (( i < LATEST_COUNT )) && latest+=("$zs") || older+=("$zs")
     (( i += 1 )) || true
   done
 
   {
     echo "# OCP ${major_minor} CloudRAN Operator Versions"
     echo
-    echo "Last updated: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "Last updated: ${NOW}"
     echo
 
     if [[ ${#latest[@]} -gt 0 ]]; then
-      # Header row
-      printf "| Operator |"
-      for zs in "${latest[@]}"; do printf " %s |" "$zs"; done
-      echo
-      # Separator
-      printf "|----------|"
-      for _ in "${latest[@]}"; do printf -- "---------|"; done
-      echo
-      # Data rows
+      printf "| Operator |"; for zs in "${latest[@]}"; do printf " %s |" "$zs"; done; echo
+      printf "|----------|"; for _ in "${latest[@]}"; do printf -- "---------|"; done; echo
       for pkg in $ALL_PACKAGES; do
         printf "| %s |" "$pkg"
-        for zs in "${latest[@]}"; do
-          local val="${EXISTING_DATA["${zs}:${pkg}"]:-}"
-          printf " %s |" "$val"
-        done
+        for zs in "${latest[@]}"; do printf " %s |" "${EXISTING_DATA["${zs}:${pkg}"]:-}"; done
         echo
       done
     fi
 
     if [[ ${#older[@]} -gt 0 ]]; then
-      echo
-      echo "## Older releases"
-      echo
-      printf "| Operator |"
-      for zs in "${older[@]}"; do printf " %s |" "$zs"; done
-      echo
-      printf "|----------|"
-      for _ in "${older[@]}"; do printf "---------|"; done
-      echo
+      echo; echo "## Older releases"; echo
+      printf "| Operator |"; for zs in "${older[@]}"; do printf " %s |" "$zs"; done; echo
+      printf "|----------|"; for _ in "${older[@]}"; do printf -- "---------|"; done; echo
       for pkg in $ALL_PACKAGES; do
         printf "| %s |" "$pkg"
-        for zs in "${older[@]}"; do
-          local val="${EXISTING_DATA["${zs}:${pkg}"]:-}"
-          printf " %s |" "$val"
-        done
+        for zs in "${older[@]}"; do printf " %s |" "${EXISTING_DATA["${zs}:${pkg}"]:-}"; done
         echo
       done
     fi
   } >"$md_file"
 }
+
+# ---------------------------------------------------------------------------
+# Alert file
+# ---------------------------------------------------------------------------
+
+write_alert() {
+  local major_minor="$1"
+  local zstream="$2"
+  # drifts: array of "pkg|baseline|current" strings
+  local -a drifts=("${@:3}")
+
+  mkdir -p "$ALERTS_DIR"
+  local alert_file="$ALERTS_DIR/${major_minor}-${TODAY}.md"
+
+  {
+    echo "# ALERT: Operator version drift detected for OCP ${major_minor}"
+    echo
+    echo "**Date:** ${TODAY}"
+    echo "**Current OCP z-stream:** ${zstream} _(no new release today)_"
+    echo
+    echo "Operator versions in the catalog changed without a corresponding OCP z-stream release."
+    echo "This breaks the expected 1-to-1 mapping between OCP release and operator versions."
+    echo
+    echo "## Changed operators"
+    echo
+    echo "| Operator | Baseline (at ${zstream} release) | Current catalog |"
+    echo "|----------|----------------------------------|-----------------|"
+    for drift in "${drifts[@]}"; do
+      IFS='|' read -r pkg baseline current <<<"$drift"
+      echo "| ${pkg} | ${baseline} | **${current}** |"
+    done
+    echo
+    echo "## Action required"
+    echo
+    echo "- Verify whether the new operator version is intentional"
+    echo "- If a hotfix was pushed to the catalog outside an OCP release cycle, update the baseline"
+    echo "- Close this alert by deleting this file once investigated"
+  } >"$alert_file"
+
+  log "ALERT created: $alert_file"
+}
+
+# ---------------------------------------------------------------------------
+# Per-version processing
+# ---------------------------------------------------------------------------
 
 process_version() {
   local major_minor="$1"
@@ -207,60 +243,77 @@ process_version() {
     log "WARN: could not detect latest z-stream for ${major_minor}, skipping"
     return 0
   fi
-  log "Latest z-stream for ${major_minor}: ${latest_zstream}"
+  log "Latest z-stream: ${latest_zstream}"
 
   parse_existing_yaml "$yaml_file"
 
-  # Check if we already have this z-stream
-  for existing in "${EXISTING_ZSTREAMS[@]+"${EXISTING_ZSTREAMS[@]}"}"; do
-    if [[ "$existing" == "$latest_zstream" ]]; then
-      log "Already have ${latest_zstream}, skipping"
-      return 0
-    fi
-  done
-
+  # Always refresh catalog and capture today's versions
   refresh_catalog_cache "$major_minor"
-
   local versions_tsv
   versions_tsv=$(get_operator_versions "$major_minor")
-
   if [[ -z "$versions_tsv" ]]; then
-    log "WARN: no operator versions extracted for ${major_minor}, skipping"
+    log "WARN: no operator versions extracted for ${major_minor}"
     return 0
   fi
 
-  # Store new versions in EXISTING_DATA
-  while IFS=$'\t' read -r pkg ver; do
-    EXISTING_DATA["${latest_zstream}:${pkg}"]="$ver"
-  done <<<"$versions_tsv"
+  # Determine if this is a new z-stream
+  local is_new_zstream=true
+  for existing in "${EXISTING_ZSTREAMS[@]+"${EXISTING_ZSTREAMS[@]}"}"; do
+    [[ "$existing" == "$latest_zstream" ]] && { is_new_zstream=false; break; }
+  done
 
-  # Prepend new z-stream to the list
-  local -a all_zstreams=("$latest_zstream" "${EXISTING_ZSTREAMS[@]+"${EXISTING_ZSTREAMS[@]}"}")
+  if $is_new_zstream; then
+    # --- New OCP z-stream: record baseline ---
+    log "New z-stream detected: ${latest_zstream} — recording baseline"
+    while IFS=$'\t' read -r pkg ver; do
+      EXISTING_DATA["${latest_zstream}:${pkg}"]="$ver"
+    done <<<"$versions_tsv"
 
-  mkdir -p "$SNAPSHOTS_DIR"
-  write_yaml "$yaml_file" "${all_zstreams[@]}"
-  write_markdown "$md_file" "$major_minor" "${all_zstreams[@]}"
+    local -a all_zstreams=("$latest_zstream" "${EXISTING_ZSTREAMS[@]+"${EXISTING_ZSTREAMS[@]}"}")
+    mkdir -p "$SNAPSHOTS_DIR"
+    write_yaml "$yaml_file" "${all_zstreams[@]}"
+    write_markdown "$md_file" "$major_minor" "${all_zstreams[@]}"
+    log "Snapshots updated for ${latest_zstream}"
 
-  log "Updated ${yaml_file} and ${md_file} with ${latest_zstream}"
+  else
+    # --- Same z-stream: check for operator drift ---
+    local -a drifts=()
+    while IFS=$'\t' read -r pkg current_ver; do
+      local baseline="${EXISTING_DATA["${latest_zstream}:${pkg}"]:-}"
+      if [[ -n "$baseline" && "$current_ver" != "$baseline" ]]; then
+        drifts+=("${pkg}|${baseline}|${current_ver}")
+        log "DRIFT: ${pkg} baseline=${baseline} current=${current_ver} (OCP still ${latest_zstream})"
+      fi
+    done <<<"$versions_tsv"
+
+    if [[ ${#drifts[@]} -gt 0 ]]; then
+      write_alert "$major_minor" "$latest_zstream" "${drifts[@]}"
+    else
+      log "No drift for ${latest_zstream} — catalog matches baseline"
+    fi
+  fi
 }
 
-main() {
-  log "Starting operator version snapshot"
-  log "OCP versions: $OCP_VERSIONS"
-  log "Repo: $REPO_DIR"
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
-  local changed=0
+main() {
+  log "Starting operator version snapshot (${TODAY})"
+  log "OCP versions: $OCP_VERSIONS"
+
+  mkdir -p "$SNAPSHOTS_DIR" "$ALERTS_DIR"
 
   for version in $OCP_VERSIONS; do
-    process_version "$version" && changed=1 || true
+    process_version "$version" || true
   done
 
   cd "$REPO_DIR"
-  if [[ -n "$(git status --porcelain snapshots/ 2>/dev/null)" ]]; then
-    local today
-    today=$(date +%Y-%m-%d)
-    git add snapshots/
-    git commit -m "update operator versions ${today}"
+  local changed
+  changed=$(git status --porcelain snapshots/ alerts/ 2>/dev/null || true)
+  if [[ -n "$changed" ]]; then
+    git add snapshots/ alerts/
+    git commit -m "operator snapshot ${TODAY}"
     if git remote get-url origin >/dev/null 2>&1; then
       git push
       log "Pushed to remote"
@@ -268,7 +321,7 @@ main() {
       log "No remote configured, skipping push"
     fi
   else
-    log "No changes detected"
+    log "No changes — catalog matches all baselines"
   fi
 
   log "Done"
