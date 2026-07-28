@@ -30,6 +30,7 @@ ALL_PACKAGES="cluster-logging lifecycle-agent local-storage-operator lvms-operat
 OC_CATALOG="${OC_CATALOG:-oc-catalog.sh}"
 TODAY=$(date -u +%Y-%m-%d)
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+NOW_HOUR=$(date -u +%Y-%m-%dT%H)
 
 # Auth discovery for DOCKER_CONFIG (needed by opm)
 if [[ -z "${DOCKER_CONFIG:-}" ]]; then
@@ -108,13 +109,18 @@ get_operator_versions() {
 # YAML read/write
 # ---------------------------------------------------------------------------
 
-# Sets globals: EXISTING_ZSTREAMS (ordered array), EXISTING_DATA[zstream:pkg]=version
+# Sets globals:
+#   EXISTING_ZSTREAMS (ordered array)
+#   EXISTING_DATA[zstream:pkg]=version
+#   EXISTING_DETECTED_AT[zstream]=timestamp
 declare -A EXISTING_DATA
+declare -A EXISTING_DETECTED_AT
 declare -a EXISTING_ZSTREAMS
 
 parse_existing_yaml() {
   local yaml_file="$1"
   EXISTING_DATA=()
+  EXISTING_DETECTED_AT=()
   EXISTING_ZSTREAMS=()
   [[ -f "$yaml_file" ]] || return 0
 
@@ -123,6 +129,8 @@ parse_existing_yaml() {
     if [[ "$line" =~ ^\"([0-9]+\.[0-9]+\.[0-9]+)\":$ ]]; then
       current_zstream="${BASH_REMATCH[1]}"
       EXISTING_ZSTREAMS+=("$current_zstream")
+    elif [[ -n "$current_zstream" && "$line" =~ ^[[:space:]]+_detected_at:\ (.+)$ ]]; then
+      EXISTING_DETECTED_AT["$current_zstream"]="${BASH_REMATCH[1]}"
     elif [[ -n "$current_zstream" && "$line" =~ ^[[:space:]]+([a-z][a-z0-9-]*):\ (.+)$ ]]; then
       EXISTING_DATA["${current_zstream}:${BASH_REMATCH[1]}"]="${BASH_REMATCH[2]}"
     fi
@@ -136,6 +144,8 @@ write_yaml() {
     echo "# Last updated: ${NOW}"
     for zs in "${zstreams[@]}"; do
       echo "\"${zs}\":"
+      local detected="${EXISTING_DETECTED_AT["${zs}"]:-}"
+      [[ -n "$detected" ]] && echo "  _detected_at: ${detected}"
       for pkg in $ALL_PACKAGES; do
         local val="${EXISTING_DATA["${zs}:${pkg}"]:-}"
         [[ -n "$val" ]] && echo "  ${pkg}: ${val}"
@@ -162,25 +172,26 @@ write_markdown() {
     echo "Last updated: ${NOW}"
     echo
 
-    if [[ ${#latest[@]} -gt 0 ]]; then
-      printf "| Operator |"; for zs in "${latest[@]}"; do printf " %s |" "$zs"; done; echo
-      printf "|----------|"; for _ in "${latest[@]}"; do printf -- "---------|"; done; echo
+    _md_table() {
+      local -a cols=("$@")
+      printf "| Operator |"
+      for zs in "${cols[@]}"; do
+        local dt="${EXISTING_DETECTED_AT["${zs}"]:-}"
+        [[ -n "$dt" ]] && printf " %s (%s) |" "$zs" "$dt" || printf " %s |" "$zs"
+      done; echo
+      printf "|----------|"; for _ in "${cols[@]}"; do printf -- "-----------------|"; done; echo
       for pkg in $ALL_PACKAGES; do
         printf "| %s |" "$pkg"
-        for zs in "${latest[@]}"; do printf " %s |" "${EXISTING_DATA["${zs}:${pkg}"]:-}"; done
+        for zs in "${cols[@]}"; do printf " %s |" "${EXISTING_DATA["${zs}:${pkg}"]:-}"; done
         echo
       done
-    fi
+    }
+
+    [[ ${#latest[@]} -gt 0 ]] && _md_table "${latest[@]}"
 
     if [[ ${#older[@]} -gt 0 ]]; then
       echo; echo "## Older releases"; echo
-      printf "| Operator |"; for zs in "${older[@]}"; do printf " %s |" "$zs"; done; echo
-      printf "|----------|"; for _ in "${older[@]}"; do printf -- "---------|"; done; echo
-      for pkg in $ALL_PACKAGES; do
-        printf "| %s |" "$pkg"
-        for zs in "${older[@]}"; do printf " %s |" "${EXISTING_DATA["${zs}:${pkg}"]:-}"; done
-        echo
-      done
+      _md_table "${older[@]}"
     fi
   } >"$md_file"
 }
@@ -192,28 +203,42 @@ write_markdown() {
 write_alert() {
   local major_minor="$1"
   local zstream="$2"
+  local zstream_detected="${EXISTING_DETECTED_AT["${zstream}"]:-unknown}"
   # drifts: array of "pkg|baseline|current" strings
   local -a drifts=("${@:3}")
 
   mkdir -p "$ALERTS_DIR"
-  local alert_file="$ALERTS_DIR/${major_minor}-${TODAY}.md"
+  # Hourly filename so each detection gets its own file
+  local alert_file="$ALERTS_DIR/${major_minor}-${NOW_HOUR}.md"
 
   {
     echo "# ALERT: Operator version drift detected for OCP ${major_minor}"
     echo
-    echo "**Date:** ${TODAY}"
-    echo "**Current OCP z-stream:** ${zstream} _(no new release today)_"
+    echo "**Detected at:** ${NOW}"
+    echo "**Current OCP z-stream:** ${zstream}"
+    echo "**z-stream first appeared:** ${zstream_detected}"
     echo
     echo "Operator versions in the catalog changed without a corresponding OCP z-stream release."
     echo "This breaks the expected 1-to-1 mapping between OCP release and operator versions."
     echo
     echo "## Changed operators"
     echo
-    echo "| Operator | Baseline (at ${zstream} release) | Current catalog |"
-    echo "|----------|----------------------------------|-----------------|"
+    echo "| Operator | Baseline (at ${zstream} release) | Current catalog | Drift after |"
+    echo "|----------|----------------------------------|-----------------|-------------|"
     for drift in "${drifts[@]}"; do
       IFS='|' read -r pkg baseline current <<<"$drift"
-      echo "| ${pkg} | ${baseline} | **${current}** |"
+      # Calculate hours since z-stream was detected
+      local drift_info=""
+      if [[ "$zstream_detected" != "unknown" ]]; then
+        local zs_epoch base_epoch drift_hours
+        zs_epoch=$(date -u -d "${zstream_detected}" +%s 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "${zstream_detected}" +%s 2>/dev/null || echo 0)
+        base_epoch=$(date -u +%s 2>/dev/null || date -u -j +%s 2>/dev/null || echo 0)
+        if [[ "$zs_epoch" -gt 0 && "$base_epoch" -gt 0 ]]; then
+          drift_hours=$(( (base_epoch - zs_epoch) / 3600 ))
+          drift_info="${drift_hours}h after OCP release"
+        fi
+      fi
+      echo "| ${pkg} | ${baseline} | **${current}** | ${drift_info} |"
     done
     echo
     echo "## Action required"
@@ -263,8 +288,9 @@ process_version() {
   done
 
   if $is_new_zstream; then
-    # --- New OCP z-stream: record baseline ---
-    log "New z-stream detected: ${latest_zstream} — recording baseline"
+    # --- New OCP z-stream: record baseline with detection timestamp ---
+    log "New z-stream detected: ${latest_zstream} — recording baseline at ${NOW}"
+    EXISTING_DETECTED_AT["${latest_zstream}"]="${NOW}"
     while IFS=$'\t' read -r pkg ver; do
       EXISTING_DATA["${latest_zstream}:${pkg}"]="$ver"
     done <<<"$versions_tsv"
