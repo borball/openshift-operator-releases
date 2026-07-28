@@ -28,8 +28,12 @@ CERTIFIED_PACKAGES="sriov-fec"
 ALL_PACKAGES="cluster-logging lifecycle-agent local-storage-operator lvms-operator ptp-operator redhat-oadp-operator sriov-fec sriov-network-operator"
 
 OC_CATALOG="${OC_CATALOG:-oc-catalog.sh}"
-# Space-separated pkg=channel overrides (bypasses defaultChannel in catalog)
-CHANNEL_OVERRIDES="${CHANNEL_OVERRIDES:-cluster-logging=stable-6.4}"
+
+# Per-version channel overrides (space-separated pkg=channel pairs).
+# Use variable name CHANNEL_OVERRIDES_<major>_<minor> to override per version.
+CHANNEL_OVERRIDES_4_18="${CHANNEL_OVERRIDES_4_18:-cluster-logging=stable-6.4}"
+CHANNEL_OVERRIDES_4_20="${CHANNEL_OVERRIDES_4_20:-cluster-logging=stable-6.4}"
+CHANNEL_OVERRIDES_4_22="${CHANNEL_OVERRIDES_4_22:-}"
 TODAY=$(date -u +%Y-%m-%d)
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 NOW_HOUR=$(date -u +%Y-%m-%dT%H)
@@ -72,9 +76,10 @@ refresh_catalog_cache() {
 extract_versions() {
   local json_file="$1"
   local packages="$2"
+  local overrides="${3:-}"
   [[ -f "$json_file" ]] || return 0
 
-  jq -rs --arg pkgs "$packages" --arg overrides "$CHANNEL_OVERRIDES" '
+  jq -rs --arg pkgs "$packages" --arg overrides "$overrides" '
     def version_key:
       split("-") | .[0] | split(".") | map(tonumber? // 0);
     ($overrides | split(" ") | map(select(. != "") | split("=") | {(.[0]): .[1]}) | add // {}) as $ovr
@@ -102,9 +107,10 @@ extract_versions() {
 
 get_operator_versions() {
   local version="$1"
+  local overrides="$2"
   {
-    extract_versions "/tmp/redhat-operator-${version}.json" "$REDHAT_PACKAGES"
-    extract_versions "/tmp/certified-operator-${version}.json" "$CERTIFIED_PACKAGES"
+    extract_versions "/tmp/redhat-operator-${version}.json" "$REDHAT_PACKAGES" "$overrides"
+    extract_versions "/tmp/certified-operator-${version}.json" "$CERTIFIED_PACKAGES" "$overrides"
   } | sort -t$'\t' -k1,1
 }
 
@@ -265,6 +271,11 @@ process_version() {
 
   log "Processing OCP ${major_minor}..."
 
+  # Resolve per-version channel overrides
+  local override_var="CHANNEL_OVERRIDES_${major_minor//./_}"
+  local overrides="${!override_var:-}"
+  [[ -n "$overrides" ]] && log "Channel overrides: $overrides"
+
   local latest_zstream
   latest_zstream=$(get_latest_zstream "$major_minor")
   if [[ -z "$latest_zstream" ]]; then
@@ -278,7 +289,7 @@ process_version() {
   # Always refresh catalog and capture today's versions
   refresh_catalog_cache "$major_minor"
   local versions_tsv
-  versions_tsv=$(get_operator_versions "$major_minor")
+  versions_tsv=$(get_operator_versions "$major_minor" "$overrides")
   if [[ -z "$versions_tsv" ]]; then
     log "WARN: no operator versions extracted for ${major_minor}"
     return 0
