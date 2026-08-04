@@ -79,10 +79,34 @@ get_latest_zstream() {
 
 refresh_catalog_cache() {
   local version="$1"
-  log "Refreshing redhat-operator catalog for $version"
-  "$OC_CATALOG" -v "$version" cloudran >/dev/null 2>&1 || true
-  log "Refreshing certified-operator catalog for $version"
-  "$OC_CATALOG" -v "$version" -c certified-operator versions sriov-fec >/dev/null 2>&1 || true
+  # Check if the catalog image digest changed since last fetch.
+  # This is a cheap skopeo inspect (~1s) vs re-downloading 180MB every hour.
+  for catalog_type in redhat-operator certified-operator; do
+    local index_image="registry.redhat.io/redhat/${catalog_type}-index:v${version}"
+    local cache_json="/tmp/${catalog_type}-${version}.json"
+    local digest_file="/tmp/${catalog_type}-${version}.digest"
+
+    local current_digest
+    current_digest=$(skopeo inspect --no-tags "docker://${index_image}" 2>/dev/null \
+      | jq -r '.Digest // empty' 2>/dev/null) || true
+
+    local cached_digest=""
+    [[ -f "$digest_file" ]] && cached_digest=$(cat "$digest_file")
+
+    if [[ -n "$current_digest" && "$current_digest" == "$cached_digest" && -f "$cache_json" ]]; then
+      log "Catalog ${catalog_type}:v${version} unchanged (digest match) — reusing cache"
+      continue
+    fi
+
+    log "Catalog ${catalog_type}:v${version} changed or missing — fetching"
+    rm -f "$cache_json"
+    if [[ "$catalog_type" == "redhat-operator" ]]; then
+      "$OC_CATALOG" -v "$version" cloudran >/dev/null 2>&1 || true
+    else
+      "$OC_CATALOG" -v "$version" -c certified-operator versions sriov-fec >/dev/null 2>&1 || true
+    fi
+    [[ -n "$current_digest" ]] && echo "$current_digest" >"$digest_file"
+  done
 }
 
 extract_versions() {
