@@ -133,47 +133,86 @@ get_all_bundles_for_package() {
     | ([.[] | select(.schema=="olm.package") | select(.name==$pkg)
         | ($ovr[$pkg] // .defaultChannel)] | .[0] // "") as $ch
     | if $ch == "" then empty else
-      ([.[] | select(.schema=="olm.bundle") | select(.package==$pkg)
-        | {
-            ver: ((.properties // [] | map(select(.type=="olm.package") | .value.version) | .[0])
-                  // (.name | sub("^[^.]+\\.v"; ""))),
-            img: (.image // "")
-          }]
+      # Bundle names that are members of this specific channel
+      ([.[] | select(.schema=="olm.channel")
+        | select(.package==$pkg) | select(.name==$ch)
+        | .entries[] | .name] | unique) as $ch_bundles
+      # Only return bundles that appear in the channel
+      | [.[] | select(.schema=="olm.bundle")
+          | select(.package==$pkg)
+          | select(.name as $n | $ch_bundles | index($n) != null)
+          | {
+              ver: ((.properties // [] | map(select(.type=="olm.package") | .value.version) | .[0])
+                    // (.name | sub("^[^.]+\\.v"; ""))),
+              img: (.image // "")
+            }]
         | unique_by(.ver)
         | .[]
-        | "\(.ver)\t\(.img)")
+        | "\(.ver)\t\(.img)"
       end
   ' "$json_file"
 }
 
 # For one package, find the latest version whose build date <= cutoff_epoch.
+# Date-stamped versions (e.g. v4.20.0-202607141720): date from version string (reliable).
+# Semantic versions (e.g. v6.4.6): date from bundle image via skopeo (may be wrong if
+#   Red Hat rebuilt the image). Fall back to version-number ordering if image date
+#   is implausible (> cutoff by more than 30 days).
 # Outputs: v<version>  or empty string
 find_version_at_date() {
   local json_file="$1" pkg="$2" overrides="$3" cutoff_epoch="$4"
 
-  local best_ver="" best_epoch=0
+  # Collect all qualifying (bundle_epoch, ver) pairs
+  local -a dated_vers=()   # "epoch ver" — for date-stamped (reliable)
+  local -a semantic_vers=() # "epoch ver" — for semantic (may be unreliable)
 
   while IFS=$'\t' read -r ver img; do
     [[ -z "$ver" ]] && continue
     local bundle_epoch=0
+    local is_datestamped=false
 
     local ts12; ts12=$(version_ts12 "$ver")
     if [[ -n "$ts12" ]]; then
       bundle_epoch=$(ts12_to_epoch "$ts12")
+      is_datestamped=true
     elif [[ -n "$img" ]]; then
       local created; created=$(get_bundle_image_date "$img")
-      [[ -n "$created" ]] && bundle_epoch=$(to_epoch "$created")
+      [[ -n "$created" ]] && bundle_epoch=$(to_epoch "$created") || true
     fi
 
-    if [[ "$bundle_epoch" -gt 0 && "$bundle_epoch" -le "$cutoff_epoch" ]]; then
-      if [[ "$bundle_epoch" -gt "$best_epoch" ]]; then
-        best_epoch="$bundle_epoch"
-        best_ver="$ver"
-      fi
+    if $is_datestamped; then
+      [[ "$bundle_epoch" -gt 0 && "$bundle_epoch" -le "$cutoff_epoch" ]] \
+        && dated_vers+=("${bundle_epoch} ${ver}")
+    else
+      # Accept semantic bundle if within a 90-day window after cutoff
+      # (handles slight catalog-vs-fast lag); reject if far in the future
+      local window=$(( cutoff_epoch + 90*86400 ))
+      [[ "$bundle_epoch" -gt 0 && "$bundle_epoch" -le "$window" ]] \
+        && semantic_vers+=("${bundle_epoch} ${ver}")
     fi
   done < <(get_all_bundles_for_package "$json_file" "$pkg" "$overrides")
 
-  [[ -n "$best_ver" ]] && printf 'v%s' "${best_ver#v}"
+  # For date-stamped: pick the one with the highest epoch <= cutoff
+  if [[ ${#dated_vers[@]} -gt 0 ]]; then
+    local best_ver=""
+    local best_epoch=0
+    for entry in "${dated_vers[@]}"; do
+      local ep="${entry%% *}" v="${entry#* }"
+      [[ "$ep" -gt "$best_epoch" ]] && { best_epoch="$ep"; best_ver="$v"; }
+    done
+    [[ -n "$best_ver" ]] && printf 'v%s' "${best_ver#v}" && return 0
+  fi
+
+  # For semantic: sort by version number (semver) and pick the highest
+  # (channel filtering already scoped to the right stream, so highest = most recent)
+  if [[ ${#semantic_vers[@]} -gt 0 ]]; then
+    local best_ver
+    best_ver=$(printf '%s\n' "${semantic_vers[@]}" \
+      | awk '{print $2}' \
+      | sort -t. -k1,1n -k2,2n -k3,3n \
+      | tail -1)
+    [[ -n "$best_ver" ]] && printf 'v%s' "${best_ver#v}"
+  fi
 }
 
 # ---------------------------------------------------------------------------
