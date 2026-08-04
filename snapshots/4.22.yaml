@@ -3,11 +3,11 @@
   _fast_promoted_at: 2026-08-04T15:08:20Z
   cluster-logging: v6.6.0
   lifecycle-agent: v4.22.1
-  local-storage-operator: v4.22.0-202607220441
+  local-storage-operator: v4.22.0-202607272042
   lvms-operator: v4.22.0
-  ptp-operator: v4.22.0-202607220441
+  ptp-operator: v4.22.0-202607272042
   redhat-oadp-operator: v1.6.1
-  sriov-network-operator: v4.22.0-202607220441
+  sriov-network-operator: v4.22.0-202607272042
 "4.22.7":
   _fast_promoted_at: 2026-07-30T21:22:01Z
   cluster-logging: v6.6.0
