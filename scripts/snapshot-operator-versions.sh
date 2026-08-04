@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Daily snapshot of CloudRAN operator versions per OCP major.minor.
+# Hourly snapshot of CloudRAN operator versions per OCP major.minor.
 #
 # Expected behaviour (1-to-1 mapping):
 #   Each OCP z-stream release maps to a fixed set of operator versions.
-#   When a NEW z-stream appears the current catalog state is captured as baseline.
-#   On subsequent days with NO new OCP release the catalog is still checked:
+#   When a NEW z-stream appears, it goes to pending/ until it reaches the fast channel
+#   (catalog is ready within hours of fast promotion). Baseline is then locked.
+#   On subsequent runs with NO new OCP release the catalog is still checked:
 #     - if operator versions match the baseline → no-op
 #     - if any version changed without a new OCP release → ALERT file created in alerts/
 #
@@ -55,6 +56,7 @@ log() { echo "[$(date +%Y-%m-%dT%H:%M:%S)] $*" >&2; }
 command -v "$OC_CATALOG" >/dev/null 2>&1 || die "oc-catalog.sh not found in PATH"
 command -v jq >/dev/null 2>&1 || die "jq not found"
 command -v curl >/dev/null 2>&1 || die "curl not found"
+command -v skopeo >/dev/null 2>&1 || die "skopeo not found (required for digest-based catalog cache)"
 
 # ---------------------------------------------------------------------------
 # Catalog helpers
@@ -117,7 +119,8 @@ extract_versions() {
 
   jq -rs --arg pkgs "$packages" --arg overrides "$overrides" '
     def version_key:
-      split("-") | .[0] | split(".") | map(tonumber? // 0);
+      split("-") | (.[0] | split(".") | map(tonumber? // 0)) as $base
+      | if length > 1 then $base + [(.[1] | tonumber? // 0)] else $base end;
     ($overrides | split(" ") | map(select(. != "") | split("=") | {(.[0]): .[1]}) | add // {}) as $ovr
     | ($pkgs | split(" ")) as $wanted
     | ([.[] | select(.schema=="olm.package")
@@ -155,9 +158,9 @@ get_operator_versions() {
 # ---------------------------------------------------------------------------
 
 # Sets globals:
-#   EXISTING_ZSTREAMS (ordered array)
-#   EXISTING_DATA[zstream:pkg]=version
-#   EXISTING_DETECTED_AT[zstream]=timestamp
+#   EXISTING_ZSTREAMS (ordered array, newest first)
+#   EXISTING_DATA[zstream:pkg]=version  (also holds _first_seen_at)
+#   EXISTING_DETECTED_AT[zstream]=fast_promoted_at timestamp
 declare -A EXISTING_DATA
 declare -A EXISTING_DETECTED_AT
 declare -a EXISTING_ZSTREAMS
