@@ -61,8 +61,13 @@ command -v curl >/dev/null 2>&1 || die "curl not found"
 
 get_latest_zstream() {
   local major_minor="$1"
-  curl -fsSL "https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/latest-${major_minor}/release.txt" 2>/dev/null \
-    | awk -F': +' '/^Name:/{print $2; exit}'
+  # Scrape the mirror index directly — the floating latest-<mm> pointer often
+  # lags behind by hours after a new z-stream is published.
+  curl -fsSL "https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/" 2>/dev/null \
+    | grep -oP "${major_minor//./\\.}\\.\\d+" \
+    | sort -t. -k3 -n \
+    | uniq \
+    | tail -1
 }
 
 refresh_catalog_cache() {
