@@ -19,6 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 SNAPSHOTS_DIR="$REPO_DIR/snapshots"
 ALERTS_DIR="$REPO_DIR/alerts"
+PENDING_DIR="$REPO_DIR/pending"
 
 OCP_VERSIONS="${OCP_VERSIONS:-4.18 4.20 4.22}"
 LATEST_COUNT=5
@@ -59,12 +60,18 @@ command -v curl >/dev/null 2>&1 || die "curl not found"
 # Catalog helpers
 # ---------------------------------------------------------------------------
 
+is_in_fast_channel() {
+  local major_minor="$1" zstream="$2"
+  curl -fsSL "https://api.openshift.com/api/upgrades_info/v1/graph?channel=fast-${major_minor}&arch=amd64" 2>/dev/null \
+    | jq -r --arg v "$zstream" '[.nodes[] | select(.version==$v)] | length > 0' 2>/dev/null
+}
+
 get_latest_zstream() {
   local major_minor="$1"
   # Scrape the mirror index directly — the floating latest-<mm> pointer often
   # lags behind by hours after a new z-stream is published.
   curl -fsSL "https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/" 2>/dev/null \
-    | grep -oP "${major_minor//./\\.}\\.\\d+" \
+    | grep -oE "${major_minor//./\\.}\\.[0-9]+" \
     | sort -t. -k3 -n \
     | uniq \
     | tail -1
@@ -143,8 +150,10 @@ parse_existing_yaml() {
     if [[ "$line" =~ ^\"([0-9]+\.[0-9]+\.[0-9]+)\":$ ]]; then
       current_zstream="${BASH_REMATCH[1]}"
       EXISTING_ZSTREAMS+=("$current_zstream")
-    elif [[ -n "$current_zstream" && "$line" =~ ^[[:space:]]+_detected_at:\ (.+)$ ]]; then
+    elif [[ -n "$current_zstream" && "$line" =~ ^[[:space:]]+_fast_promoted_at:\ (.+)$ ]]; then
       EXISTING_DETECTED_AT["$current_zstream"]="${BASH_REMATCH[1]}"
+    elif [[ -n "$current_zstream" && "$line" =~ ^[[:space:]]+_first_seen_at:\ (.+)$ ]]; then
+      EXISTING_DATA["${current_zstream}:_first_seen_at"]="${BASH_REMATCH[1]}"
     elif [[ -n "$current_zstream" && "$line" =~ ^[[:space:]]+([a-z][a-z0-9-]*):\ (.+)$ ]]; then
       EXISTING_DATA["${current_zstream}:${BASH_REMATCH[1]}"]="${BASH_REMATCH[2]}"
     fi
@@ -158,8 +167,10 @@ write_yaml() {
     echo "# Last updated: ${NOW}"
     for zs in "${zstreams[@]}"; do
       echo "\"${zs}\":"
+      local first_seen="${EXISTING_DATA["${zs}:_first_seen_at"]:-}"
       local detected="${EXISTING_DETECTED_AT["${zs}"]:-}"
-      [[ -n "$detected" ]] && echo "  _detected_at: ${detected}"
+      [[ -n "$first_seen" ]] && echo "  _first_seen_at: ${first_seen}"
+      [[ -n "$detected" ]]   && echo "  _fast_promoted_at: ${detected}"
       for pkg in $ALL_PACKAGES; do
         local val="${EXISTING_DATA["${zs}:${pkg}"]:-}"
         [[ -n "$val" ]] && echo "  ${pkg}: ${val}"
@@ -208,6 +219,45 @@ write_markdown() {
       _md_table "${older[@]}"
     fi
   } >"$md_file"
+}
+
+# ---------------------------------------------------------------------------
+# Pending state (z-streams seen but not yet in fast channel)
+# pending/<mm>.yaml: "4.22.8": { _first_seen_at: <ts> }
+# ---------------------------------------------------------------------------
+
+get_pending_first_seen() {
+  local pending_file="$1" zstream="$2"
+  [[ -f "$pending_file" ]] || return 0
+  awk -v zs="$zstream" '
+    /^"[0-9]+\.[0-9]+\.[0-9]+":\s*$/ { current = substr($0, 2, index($0, "\"", 2)-2) }
+    current == zs && /_first_seen_at:/ { gsub(/.*_first_seen_at: */, ""); print; exit }
+  ' "$pending_file"
+}
+
+add_pending() {
+  local pending_file="$1" zstream="$2" first_seen="$3"
+  mkdir -p "$PENDING_DIR"
+  # Remove existing entry for this zstream if present, then append
+  if [[ -f "$pending_file" ]]; then
+    local tmp; tmp=$(mktemp)
+    awk -v zs="$zstream" '
+      /^"[0-9]+\.[0-9]+\.[0-9]+":\s*$/ { current = substr($0, 2, index($0, "\"", 2)-2) }
+      current != zs { print }
+    ' "$pending_file" >"$tmp" && mv "$tmp" "$pending_file"
+  fi
+  printf '"%s":\n  _first_seen_at: %s\n' "$zstream" "$first_seen" >>"$pending_file"
+}
+
+remove_pending() {
+  local pending_file="$1" zstream="$2"
+  [[ -f "$pending_file" ]] || return 0
+  local tmp; tmp=$(mktemp)
+  awk -v zs="$zstream" '
+    /^"[0-9]+\.[0-9]+\.[0-9]+":\s*$/ { current = substr($0, 2, index($0, "\"", 2)-2) }
+    current != zs { print }
+  ' "$pending_file" >"$tmp" && mv "$tmp" "$pending_file"
+  [[ -s "$pending_file" ]] || rm -f "$pending_file"
 }
 
 # ---------------------------------------------------------------------------
@@ -273,10 +323,10 @@ process_version() {
   local major_minor="$1"
   local yaml_file="$SNAPSHOTS_DIR/${major_minor}.yaml"
   local md_file="$SNAPSHOTS_DIR/${major_minor}.md"
+  local pending_file="$PENDING_DIR/${major_minor}.yaml"
 
   log "Processing OCP ${major_minor}..."
 
-  # Resolve per-version channel overrides
   local override_var="CHANNEL_OVERRIDES_${major_minor//./_}"
   local overrides="${!override_var:-}"
   [[ -n "$overrides" ]] && log "Channel overrides: $overrides"
@@ -291,37 +341,19 @@ process_version() {
 
   parse_existing_yaml "$yaml_file"
 
-  # Always refresh catalog and capture today's versions
-  refresh_catalog_cache "$major_minor"
-  local versions_tsv
-  versions_tsv=$(get_operator_versions "$major_minor" "$overrides")
-  if [[ -z "$versions_tsv" ]]; then
-    log "WARN: no operator versions extracted for ${major_minor}"
-    return 0
-  fi
-
-  # Determine if this is a new z-stream
-  local is_new_zstream=true
+  # Check if this z-stream already has a baseline
+  local is_baselined=false
   for existing in "${EXISTING_ZSTREAMS[@]+"${EXISTING_ZSTREAMS[@]}"}"; do
-    [[ "$existing" == "$latest_zstream" ]] && { is_new_zstream=false; break; }
+    [[ "$existing" == "$latest_zstream" ]] && { is_baselined=true; break; }
   done
 
-  if $is_new_zstream; then
-    # --- New OCP z-stream: record baseline with detection timestamp ---
-    log "New z-stream detected: ${latest_zstream} — recording baseline at ${NOW}"
-    EXISTING_DETECTED_AT["${latest_zstream}"]="${NOW}"
-    while IFS=$'\t' read -r pkg ver; do
-      EXISTING_DATA["${latest_zstream}:${pkg}"]="$ver"
-    done <<<"$versions_tsv"
+  if $is_baselined; then
+    # --- Baselined z-stream: check for operator drift ---
+    refresh_catalog_cache "$major_minor"
+    local versions_tsv
+    versions_tsv=$(get_operator_versions "$major_minor" "$overrides")
+    [[ -z "$versions_tsv" ]] && { log "WARN: no operator versions extracted for ${major_minor}"; return 0; }
 
-    local -a all_zstreams=("$latest_zstream" "${EXISTING_ZSTREAMS[@]+"${EXISTING_ZSTREAMS[@]}"}")
-    mkdir -p "$SNAPSHOTS_DIR"
-    write_yaml "$yaml_file" "${all_zstreams[@]}"
-    write_markdown "$md_file" "$major_minor" "${all_zstreams[@]}"
-    log "Snapshots updated for ${latest_zstream}"
-
-  else
-    # --- Same z-stream: check for operator drift ---
     local -a drifts=()
     while IFS=$'\t' read -r pkg current_ver; do
       local baseline="${EXISTING_DATA["${latest_zstream}:${pkg}"]:-}"
@@ -336,7 +368,53 @@ process_version() {
     else
       log "No drift for ${latest_zstream} — catalog matches baseline"
     fi
+    return 0
   fi
+
+  # --- New z-stream: gate on fast channel before locking baseline ---
+  local first_seen
+  first_seen=$(get_pending_first_seen "$pending_file" "$latest_zstream")
+
+  if [[ -z "$first_seen" ]]; then
+    # First time we see this z-stream — record it as pending
+    add_pending "$pending_file" "$latest_zstream" "$NOW"
+    log "New z-stream ${latest_zstream} — first seen, waiting for fast-${major_minor} promotion (catalog not ready yet)"
+    return 0
+  fi
+
+  # Already pending — check if it has reached fast
+  local in_fast
+  in_fast=$(is_in_fast_channel "$major_minor" "$latest_zstream")
+  if [[ "$in_fast" != "true" ]]; then
+    log "New z-stream ${latest_zstream} still not in fast-${major_minor} (first seen: ${first_seen}) — waiting"
+    return 0
+  fi
+
+  # In fast channel: catalog is ready — lock baseline now
+  log "New z-stream ${latest_zstream} reached fast-${major_minor} — locking baseline (first seen: ${first_seen})"
+  refresh_catalog_cache "$major_minor"
+  local versions_tsv
+  versions_tsv=$(get_operator_versions "$major_minor" "$overrides")
+  if [[ -z "$versions_tsv" ]]; then
+    log "WARN: no operator versions extracted for ${major_minor}"
+    return 0
+  fi
+
+  EXISTING_DETECTED_AT["${latest_zstream}"]="${NOW}"
+  # Preserve first_seen as a separate field via a temporary global
+  local first_seen_key="${latest_zstream}:_first_seen_at"
+  EXISTING_DATA["${first_seen_key}"]="${first_seen}"
+
+  while IFS=$'\t' read -r pkg ver; do
+    EXISTING_DATA["${latest_zstream}:${pkg}"]="$ver"
+  done <<<"$versions_tsv"
+
+  local -a all_zstreams=("$latest_zstream" "${EXISTING_ZSTREAMS[@]+"${EXISTING_ZSTREAMS[@]}"}")
+  mkdir -p "$SNAPSHOTS_DIR"
+  write_yaml "$yaml_file" "${all_zstreams[@]}"
+  write_markdown "$md_file" "$major_minor" "${all_zstreams[@]}"
+  remove_pending "$pending_file" "$latest_zstream"
+  log "Baseline locked for ${latest_zstream} (fast-promoted)"
 }
 
 # ---------------------------------------------------------------------------
@@ -347,7 +425,7 @@ main() {
   log "Starting operator version snapshot (${TODAY})"
   log "OCP versions: $OCP_VERSIONS"
 
-  mkdir -p "$SNAPSHOTS_DIR" "$ALERTS_DIR"
+  mkdir -p "$SNAPSHOTS_DIR" "$ALERTS_DIR" "$PENDING_DIR"
 
   for version in $OCP_VERSIONS; do
     process_version "$version" || true
@@ -355,9 +433,9 @@ main() {
 
   cd "$REPO_DIR"
   local changed
-  changed=$(git status --porcelain snapshots/ alerts/ 2>/dev/null || true)
+  changed=$(git status --porcelain snapshots/ alerts/ pending/ 2>/dev/null || true)
   if [[ -n "$changed" ]]; then
-    git add snapshots/ alerts/
+    git add snapshots/ alerts/ pending/
     git commit -m "operator snapshot ${TODAY}"
     if git remote get-url origin >/dev/null 2>&1; then
       git push
