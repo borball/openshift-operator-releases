@@ -60,14 +60,12 @@ to_epoch() {
 
 get_fast_promotion_date() {
   local major_minor="$1" zstream="$2"
-  # Search GitHub commit history for fast-<mm>.yaml for this z-stream
-  local escaped="${zstream//./\\.}"
   curl -fsSL \
     "https://api.github.com/repos/openshift/cincinnati-graph-data/commits?path=channels/fast-${major_minor}.yaml&per_page=100" \
     2>/dev/null \
     | jq -r --arg zs "$zstream" \
-        '.[] | select(.commit.message | test($zs)) | .commit.committer.date' \
-    | head -1
+        '[.[] | select(.commit.message | test($zs)) | .commit.committer.date] | .[0] // ""' \
+    || true
 }
 
 # ---------------------------------------------------------------------------
@@ -80,7 +78,7 @@ list_zstreams() {
     | grep -oE "${major_minor//./\\.}\\.[0-9]+" \
     | sort -t. -k3 -n \
     | uniq \
-    | tail -"$count"
+    | tail -"$count" || true
 }
 
 # ---------------------------------------------------------------------------
@@ -98,9 +96,9 @@ get_bundle_image_date() {
     cat "$cache_file"
     return 0
   fi
-  local created
+  local created=""
   created=$(skopeo inspect --no-tags "docker://${image}" 2>/dev/null \
-            | jq -r '.Created // empty' 2>/dev/null || true)
+            | jq -r '.Created // empty' 2>/dev/null) || true
   if [[ -n "$created" ]]; then
     echo "$created" | tee "$cache_file"
   fi
@@ -282,7 +280,7 @@ backfill_zstream() {
   # OCP release date as _first_seen_at proxy
   local ocp_date
   ocp_date=$(curl -fsSL "https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${zstream}/release.txt" 2>/dev/null \
-    | awk -F': +' '/^Created:/{print $2; exit}')
+    | awk -F': +' '/^Created:/{print $2; exit}') || true
 
   local redhat_json="/tmp/redhat-operator-${major_minor}.json"
   local certified_json="/tmp/certified-operator-${major_minor}.json"
