@@ -1,4 +1,4 @@
-# Last updated: 2026-08-04T15:08:20Z
+# Last updated: 2026-08-04T16:24:46Z
 "4.22.8":
   _fast_promoted_at: 2026-08-04T15:08:20Z
   cluster-logging: v6.6.0
@@ -17,6 +17,16 @@
   ptp-operator: v4.22.0-202607220441
   redhat-oadp-operator: v1.6.1
   sriov-network-operator: v4.22.0-202607220441
+"4.22.6":
+  _first_seen_at: 2026-07-16T14:03:47Z
+  _fast_promoted_at: 2026-07-21T18:27:46Z
+  cluster-logging: v6.6.0
+  lifecycle-agent: v4.22.1
+  local-storage-operator: v4.22.0-202607151755
+  lvms-operator: v4.22.0
+  ptp-operator: v4.22.0-202607151755
+  redhat-oadp-operator: v1.6.1
+  sriov-network-operator: v4.22.0-202607151115
 "4.22.5":
   cluster-logging: v6.6.0
   lifecycle-agent: v4.22.0
@@ -26,3 +36,53 @@
   redhat-oadp-operator: v1.6.0
   sriov-fec: v2.12.0
   sriov-network-operator: v4.22.0-202607151115
+"4.22.4":
+  _first_seen_at: 2026-07-02T13:03:55Z
+  _fast_promoted_at: 2026-07-09T18:24:42Z
+  cluster-logging: v6.6.0
+  lifecycle-agent: v4.22.1
+  local-storage-operator: v4.22.0-202607010254
+  lvms-operator: v4.22.0
+  ptp-operator: v4.22.0-202607071902
+  redhat-oadp-operator: v1.6.1
+  sriov-network-operator: v4.22.0-202607010855
+"4.22.3":
+  _first_seen_at: 2026-06-25T13:35:42Z
+  _fast_promoted_at: 2026-06-30T16:31:17Z
+  cluster-logging: v6.6.0
+  lifecycle-agent: v4.22.1
+  local-storage-operator: v4.22.0-202606220442
+  lvms-operator: v4.22.0
+  ptp-operator: v4.22.0-202606231055
+  redhat-oadp-operator: v1.6.1
+  sriov-network-operator: v4.22.0-202606161751
+"4.22.2":
+  _first_seen_at: 2026-06-18T11:03:31Z
+  _fast_promoted_at: 2026-06-23T11:26:57Z
+  cluster-logging: v6.6.0
+  lifecycle-agent: v4.22.1
+  local-storage-operator: v4.22.0-202606220442
+  lvms-operator: v4.22.0
+  ptp-operator: v4.22.0-202606231055
+  redhat-oadp-operator: v1.6.1
+  sriov-network-operator: v4.22.0-202606161751
+"4.22.1":
+  _first_seen_at: 2026-06-11T12:21:33Z
+  _fast_promoted_at: 2026-06-16T10:49:46Z
+  cluster-logging: v6.6.0
+  lifecycle-agent: v4.22.1
+  local-storage-operator: v4.22.0-202606081658
+  lvms-operator: v4.22.0
+  ptp-operator: v4.22.0-202606091522
+  redhat-oadp-operator: v1.6.1
+  sriov-network-operator: v4.22.0-202606081046
+"4.22.0":
+  _first_seen_at: 2026-06-04T22:31:25Z
+  _fast_promoted_at: 2026-06-09T17:50:33Z
+  cluster-logging: v6.6.0
+  lifecycle-agent: v4.22.1
+  local-storage-operator: v4.22.0-202606081658
+  lvms-operator: v4.22.0
+  ptp-operator: v4.22.0-202606091522
+  redhat-oadp-operator: v1.6.1
+  sriov-network-operator: v4.22.0-202606081046
