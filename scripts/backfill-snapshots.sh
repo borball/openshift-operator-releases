@@ -184,11 +184,16 @@ find_version_at_date() {
       [[ "$bundle_epoch" -gt 0 && "$bundle_epoch" -le "$cutoff_epoch" ]] \
         && dated_vers+=("${bundle_epoch} ${ver}")
     else
-      # Accept semantic bundle if within a 90-day window after cutoff
-      # (handles slight catalog-vs-fast lag); reject if far in the future
+      # Semantic versions: Red Hat rebuilds bundle images, so skopeo dates are unreliable.
+      # Accept within a 90-day window when the date is available and plausible;
+      # otherwise include with epoch=1 as a fallback so version-number ordering
+      # still selects the correct bundle rather than returning nothing.
       local window=$(( cutoff_epoch + 90*86400 ))
-      [[ "$bundle_epoch" -gt 0 && "$bundle_epoch" -le "$window" ]] \
-        && semantic_vers+=("${bundle_epoch} ${ver}")
+      if [[ "$bundle_epoch" -gt 0 && "$bundle_epoch" -le "$window" ]]; then
+        semantic_vers+=("${bundle_epoch} ${ver}")
+      else
+        semantic_vers+=("1 ${ver}")
+      fi
     fi
   done < <(get_all_bundles_for_package "$json_file" "$pkg" "$overrides")
 
