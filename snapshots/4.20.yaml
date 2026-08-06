@@ -7,6 +7,7 @@
   lvms-operator: v4.20.1
   ptp-operator: v4.20.0-202607290454
   redhat-oadp-operator: v1.5.7
+  sriov-fec: v2.12.0
   sriov-network-operator: v4.20.0-202607290013
 "4.20.31":
   cluster-logging: v6.4.6
@@ -15,6 +16,7 @@
   lvms-operator: v4.20.1
   ptp-operator: v4.20.0-202607211654
   redhat-oadp-operator: v1.5.7
+  sriov-fec: v2.12.0
   sriov-network-operator: v4.20.0-202607171900
 "4.20.30":
   _first_seen_at: 2026-07-16T11:11:28Z
@@ -25,6 +27,7 @@
   lvms-operator: v4.20.1
   ptp-operator: v4.20.0-202607211654
   redhat-oadp-operator: v1.5.7
+  sriov-fec: v2.12.0
   sriov-network-operator: v4.20.0-202607171900
 "4.20.29":
   cluster-logging: v6.4.6
@@ -44,6 +47,7 @@
   lvms-operator: v4.20.1
   ptp-operator: v4.20.0-202606301852
   redhat-oadp-operator: v1.5.7
+  sriov-fec: v2.12.0
   sriov-network-operator: v4.20.0-202606301852
 "4.20.27":
   _first_seen_at: 2026-06-25T11:06:23Z
@@ -54,6 +58,7 @@
   lvms-operator: v4.20.1
   ptp-operator: v4.20.0-202606241204
   redhat-oadp-operator: v1.5.7
+  sriov-fec: v2.12.0
   sriov-network-operator: v4.20.0-202606190330
 "4.20.26":
   _first_seen_at: 2026-06-18T12:35:06Z
@@ -64,6 +69,7 @@
   lvms-operator: v4.20.1
   ptp-operator: v4.20.0-202606090540
   redhat-oadp-operator: v1.5.7
+  sriov-fec: v2.12.0
   sriov-network-operator: v4.20.0-202606190330
 "4.20.25":
   _first_seen_at: 2026-06-11T12:20:06Z
@@ -74,6 +80,7 @@
   lvms-operator: v4.20.1
   ptp-operator: v4.20.0-202606090540
   redhat-oadp-operator: v1.5.7
+  sriov-fec: v2.12.0
   sriov-network-operator: v4.20.0-202606121819
 "4.20.24":
   _first_seen_at: 2026-05-29T09:58:47Z
@@ -84,6 +91,7 @@
   lvms-operator: v4.20.1
   ptp-operator: v4.20.0-202605260442
   redhat-oadp-operator: v1.5.7
+  sriov-fec: v2.12.0
   sriov-network-operator: v4.20.0-202605260442
 "4.20.23":
   _first_seen_at: 2026-05-14T09:19:37Z
@@ -94,4 +102,5 @@
   lvms-operator: v4.20.1
   ptp-operator: v4.20.0-202605111226
   redhat-oadp-operator: v1.5.7
+  sriov-fec: v2.12.0
   sriov-network-operator: v4.20.0-202605112220
