@@ -465,8 +465,12 @@ main() {
     git add snapshots/ alerts/ pending/
     git commit -m "operator snapshot ${TODAY}"
     if git remote get-url origin >/dev/null 2>&1; then
-      git push
-      log "Pushed to remote"
+      if git push -u origin HEAD; then
+        log "Pushed to remote"
+      else
+        log "ERROR: git push failed — commit ${TODAY} is local-only until this is fixed"
+        exit 1
+      fi
     else
       log "No remote configured, skipping push"
     fi
