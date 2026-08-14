@@ -163,8 +163,9 @@ find_version_at_date() {
   local json_file="$1" pkg="$2" overrides="$3" cutoff_epoch="$4"
 
   # Collect all qualifying (bundle_epoch, ver) pairs
-  local -a dated_vers=()   # "epoch ver" — for date-stamped (reliable)
-  local -a semantic_vers=() # "epoch ver" — for semantic (may be unreliable)
+  local -a dated_vers=()      # "epoch ver" — date-stamped (reliable)
+  local -a semantic_vers=()   # "epoch ver" — semantic, build date known and within window
+  local -a semantic_fallback=() # "ver" only — semantic, build date unknown (no evidence either way)
 
   while IFS=$'\t' read -r ver img; do
     [[ -z "$ver" ]] && continue
@@ -184,15 +185,16 @@ find_version_at_date() {
       [[ "$bundle_epoch" -gt 0 && "$bundle_epoch" -le "$cutoff_epoch" ]] \
         && dated_vers+=("${bundle_epoch} ${ver}")
     else
-      # Semantic versions: Red Hat rebuilds bundle images, so skopeo dates are unreliable.
-      # Accept within a 90-day window when the date is available and plausible;
-      # otherwise include with epoch=1 as a fallback so version-number ordering
-      # still selects the correct bundle rather than returning nothing.
+      # Semantic versions: Red Hat may rebuild bundle images, so a skopeo date can be
+      # slightly off — allow a 90-day grace window past the cutoff. But a bundle whose
+      # build date is confidently AFTER that window did not exist yet at cutoff time
+      # and must be excluded, not included via a fake old epoch (that previously made
+      # this function always return the globally-latest version, ignoring the cutoff).
       local window=$(( cutoff_epoch + 90*86400 ))
-      if [[ "$bundle_epoch" -gt 0 && "$bundle_epoch" -le "$window" ]]; then
-        semantic_vers+=("${bundle_epoch} ${ver}")
+      if [[ "$bundle_epoch" -gt 0 ]]; then
+        [[ "$bundle_epoch" -le "$window" ]] && semantic_vers+=("${bundle_epoch} ${ver}")
       else
-        semantic_vers+=("1 ${ver}")
+        semantic_fallback+=("${ver}")
       fi
     fi
   done < <(get_all_bundles_for_package "$json_file" "$pkg" "$overrides")
@@ -208,12 +210,22 @@ find_version_at_date() {
     [[ -n "$best_ver" ]] && printf 'v%s' "${best_ver#v}" && return 0
   fi
 
-  # For semantic: sort by version number (semver) and pick the highest
-  # (channel filtering already scoped to the right stream, so highest = most recent)
+  # For semantic versions with a known in-window build date: pick the highest version
+  # number among those (channel filtering already scoped to the right stream).
   if [[ ${#semantic_vers[@]} -gt 0 ]]; then
     local best_ver
     best_ver=$(printf '%s\n' "${semantic_vers[@]}" \
       | awk '{print $2}' \
+      | sort -t. -k1,1n -k2,2n -k3,3n \
+      | tail -1)
+    [[ -n "$best_ver" ]] && printf 'v%s' "${best_ver#v}" && return 0
+  fi
+
+  # No dated evidence at all for any candidate — fall back to highest version number
+  # as a last resort (better than nothing, but unverified against the cutoff date).
+  if [[ ${#semantic_fallback[@]} -gt 0 ]]; then
+    local best_ver
+    best_ver=$(printf '%s\n' "${semantic_fallback[@]}" \
       | sort -t. -k1,1n -k2,2n -k3,3n \
       | tail -1)
     [[ -n "$best_ver" ]] && printf 'v%s' "${best_ver#v}"

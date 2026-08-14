@@ -253,13 +253,29 @@ write_markdown() {
 # pending/<mm>.yaml: "4.22.8": { _first_seen_at: <ts> }
 # ---------------------------------------------------------------------------
 
+_pending_strip() {
+  local pending_file="$1" zstream="$2"
+  awk -v hdr="\"${zstream}\":" '
+    $0 == hdr { skip=1; next }
+    /^"[0-9]+\.[0-9]+\.[0-9]+":$/ { skip=0 }
+    !skip { print }
+  ' "$pending_file"
+}
+
 get_pending_first_seen() {
   local pending_file="$1" zstream="$2"
   [[ -f "$pending_file" ]] || return 0
-  awk -v zs="$zstream" '
-    /^"[0-9]+\.[0-9]+\.[0-9]+":\s*$/ { current = substr($0, 2, index($0, "\"", 2)-2) }
-    current == zs && /_first_seen_at:/ { gsub(/.*_first_seen_at: */, ""); print; exit }
+  awk -v hdr="\"${zstream}\":" '
+    $0 == hdr { current=1; next }
+    /^"[0-9]+\.[0-9]+\.[0-9]+":$/ { current=0 }
+    current && /_first_seen_at:/ { sub(/.*_first_seen_at: */, ""); print; exit }
   ' "$pending_file"
+}
+
+list_pending() {
+  local pending_file="$1"
+  [[ -f "$pending_file" ]] || return 0
+  grep -oE '^"[0-9]+\.[0-9]+\.[0-9]+":$' "$pending_file" | sed -E 's/^"//; s/":$//' | sort -u
 }
 
 add_pending() {
@@ -268,10 +284,7 @@ add_pending() {
   # Remove existing entry for this zstream if present, then append
   if [[ -f "$pending_file" ]]; then
     local tmp; tmp=$(mktemp)
-    awk -v zs="$zstream" '
-      /^"[0-9]+\.[0-9]+\.[0-9]+":\s*$/ { current = substr($0, 2, index($0, "\"", 2)-2) }
-      current != zs { print }
-    ' "$pending_file" >"$tmp" && mv "$tmp" "$pending_file"
+    _pending_strip "$pending_file" "$zstream" >"$tmp" && mv "$tmp" "$pending_file"
   fi
   printf '"%s":\n  _first_seen_at: %s\n' "$zstream" "$first_seen" >>"$pending_file"
 }
@@ -280,11 +293,12 @@ remove_pending() {
   local pending_file="$1" zstream="$2"
   [[ -f "$pending_file" ]] || return 0
   local tmp; tmp=$(mktemp)
-  awk -v zs="$zstream" '
-    /^"[0-9]+\.[0-9]+\.[0-9]+":\s*$/ { current = substr($0, 2, index($0, "\"", 2)-2) }
-    current != zs { print }
-  ' "$pending_file" >"$tmp" && mv "$tmp" "$pending_file"
+  _pending_strip "$pending_file" "$zstream" >"$tmp" && mv "$tmp" "$pending_file"
   [[ -s "$pending_file" ]] || rm -f "$pending_file"
+}
+
+sort_zstreams_desc() {
+  printf '%s\n' "$@" | sort -t. -k1,1nr -k2,2nr -k3,3nr | awk '!seen[$0]++'
 }
 
 # ---------------------------------------------------------------------------
@@ -374,12 +388,73 @@ process_version() {
     [[ "$existing" == "$latest_zstream" ]] && { is_baselined=true; break; }
   done
 
-  if $is_baselined; then
-    # --- Baselined z-stream: check for operator drift ---
+  if ! $is_baselined; then
+    # New z-stream not seen before — record it as pending (waiting for fast channel)
+    local first_seen
+    first_seen=$(get_pending_first_seen "$pending_file" "$latest_zstream")
+    if [[ -z "$first_seen" ]]; then
+      add_pending "$pending_file" "$latest_zstream" "$NOW"
+      log "New z-stream ${latest_zstream} — first seen, waiting for fast-${major_minor} promotion (catalog not ready yet)"
+    fi
+  fi
+
+  # --- Sweep every pending z-stream for fast-channel promotion, not just the latest ---
+  # A newer patch can appear on the mirror before an older one finishes promoting;
+  # checking only "latest" would orphan the older one forever.
+  local -a newly_baselined=()
+  local zs
+  while IFS= read -r zs; do
+    [[ -z "$zs" ]] && continue
+    local pending_first_seen
+    pending_first_seen=$(get_pending_first_seen "$pending_file" "$zs")
+
+    local in_fast
+    in_fast=$(is_in_fast_channel "$major_minor" "$zs")
+    if [[ "$in_fast" != "true" ]]; then
+      log "z-stream ${zs} still not in fast-${major_minor} (first seen: ${pending_first_seen}) — waiting"
+      continue
+    fi
+
+    log "z-stream ${zs} reached fast-${major_minor} — locking baseline (first seen: ${pending_first_seen})"
     refresh_catalog_cache "$major_minor"
     local versions_tsv
     versions_tsv=$(get_operator_versions "$major_minor" "$overrides")
-    [[ -z "$versions_tsv" ]] && { log "WARN: no operator versions extracted for ${major_minor}"; return 0; }
+    if [[ -z "$versions_tsv" ]]; then
+      log "WARN: no operator versions extracted for ${major_minor}"
+      continue
+    fi
+
+    EXISTING_DETECTED_AT["${zs}"]="${NOW}"
+    EXISTING_DATA["${zs}:_first_seen_at"]="${pending_first_seen}"
+    while IFS=$'\t' read -r pkg ver; do
+      EXISTING_DATA["${zs}:${pkg}"]="$ver"
+    done <<<"$versions_tsv"
+
+    newly_baselined+=("$zs")
+  done < <(list_pending "$pending_file")
+
+  if [[ ${#newly_baselined[@]} -gt 0 ]]; then
+    local -a all_zstreams
+    all_zstreams=($(sort_zstreams_desc "${newly_baselined[@]}" "${EXISTING_ZSTREAMS[@]+"${EXISTING_ZSTREAMS[@]}"}"))
+    mkdir -p "$SNAPSHOTS_DIR"
+    write_yaml "$yaml_file" "${all_zstreams[@]}"
+    write_markdown "$md_file" "$major_minor" "${all_zstreams[@]}"
+    for zs in "${newly_baselined[@]}"; do
+      remove_pending "$pending_file" "$zs"
+      log "Baseline locked for ${zs} (fast-promoted)"
+    done
+    EXISTING_ZSTREAMS=("${all_zstreams[@]}")
+    for zs in "${newly_baselined[@]}"; do
+      [[ "$zs" == "$latest_zstream" ]] && is_baselined=true
+    done
+  fi
+
+  if $is_baselined; then
+    # --- Baselined z-stream: check for operator drift ---
+    refresh_catalog_cache "$major_minor"
+    local versions_tsv2
+    versions_tsv2=$(get_operator_versions "$major_minor" "$overrides")
+    [[ -z "$versions_tsv2" ]] && { log "WARN: no operator versions extracted for ${major_minor}"; return 0; }
 
     local -a drifts=()
     while IFS=$'\t' read -r pkg current_ver; do
@@ -388,60 +463,14 @@ process_version() {
         drifts+=("${pkg}|${baseline}|${current_ver}")
         log "DRIFT: ${pkg} baseline=${baseline} current=${current_ver} (OCP still ${latest_zstream})"
       fi
-    done <<<"$versions_tsv"
+    done <<<"$versions_tsv2"
 
     if [[ ${#drifts[@]} -gt 0 ]]; then
       write_alert "$major_minor" "$latest_zstream" "${drifts[@]}"
     else
       log "No drift for ${latest_zstream} — catalog matches baseline"
     fi
-    return 0
   fi
-
-  # --- New z-stream: gate on fast channel before locking baseline ---
-  local first_seen
-  first_seen=$(get_pending_first_seen "$pending_file" "$latest_zstream")
-
-  if [[ -z "$first_seen" ]]; then
-    # First time we see this z-stream — record it as pending
-    add_pending "$pending_file" "$latest_zstream" "$NOW"
-    log "New z-stream ${latest_zstream} — first seen, waiting for fast-${major_minor} promotion (catalog not ready yet)"
-    return 0
-  fi
-
-  # Already pending — check if it has reached fast
-  local in_fast
-  in_fast=$(is_in_fast_channel "$major_minor" "$latest_zstream")
-  if [[ "$in_fast" != "true" ]]; then
-    log "New z-stream ${latest_zstream} still not in fast-${major_minor} (first seen: ${first_seen}) — waiting"
-    return 0
-  fi
-
-  # In fast channel: catalog is ready — lock baseline now
-  log "New z-stream ${latest_zstream} reached fast-${major_minor} — locking baseline (first seen: ${first_seen})"
-  refresh_catalog_cache "$major_minor"
-  local versions_tsv
-  versions_tsv=$(get_operator_versions "$major_minor" "$overrides")
-  if [[ -z "$versions_tsv" ]]; then
-    log "WARN: no operator versions extracted for ${major_minor}"
-    return 0
-  fi
-
-  EXISTING_DETECTED_AT["${latest_zstream}"]="${NOW}"
-  # Preserve first_seen as a separate field via a temporary global
-  local first_seen_key="${latest_zstream}:_first_seen_at"
-  EXISTING_DATA["${first_seen_key}"]="${first_seen}"
-
-  while IFS=$'\t' read -r pkg ver; do
-    EXISTING_DATA["${latest_zstream}:${pkg}"]="$ver"
-  done <<<"$versions_tsv"
-
-  local -a all_zstreams=("$latest_zstream" "${EXISTING_ZSTREAMS[@]+"${EXISTING_ZSTREAMS[@]}"}")
-  mkdir -p "$SNAPSHOTS_DIR"
-  write_yaml "$yaml_file" "${all_zstreams[@]}"
-  write_markdown "$md_file" "$major_minor" "${all_zstreams[@]}"
-  remove_pending "$pending_file" "$latest_zstream"
-  log "Baseline locked for ${latest_zstream} (fast-promoted)"
 }
 
 # ---------------------------------------------------------------------------

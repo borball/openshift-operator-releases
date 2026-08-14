@@ -74,7 +74,7 @@
 "4.18.45":
   _first_seen_at: 2026-06-18T11:21:38Z
   _fast_promoted_at: 2026-06-24T11:55:16Z
-  cluster-logging: v6.4.6
+  cluster-logging: v6.4.5
   lifecycle-agent: v4.18.5
   local-storage-operator: v4.18.0-202606230417
   lvms-operator: v4.18.4
@@ -85,8 +85,8 @@
 "4.18.44":
   _first_seen_at: 2026-06-11T12:29:56Z
   _fast_promoted_at: 2026-06-17T08:36:37Z
-  cluster-logging: v6.4.6
-  lifecycle-agent: v4.18.5
+  cluster-logging: v6.4.5
+  lifecycle-agent: v4.18.4
   local-storage-operator: v4.18.0-202606111020
   lvms-operator: v4.18.4
   ptp-operator: v4.18.0-202606111020
@@ -96,8 +96,8 @@
 "4.18.43":
   _first_seen_at: 2026-05-29T06:48:02Z
   _fast_promoted_at: 2026-06-03T15:57:39Z
-  cluster-logging: v6.4.6
-  lifecycle-agent: v4.18.5
+  cluster-logging: v6.4.5
+  lifecycle-agent: v4.18.4
   local-storage-operator: v4.18.0-202605260501
   lvms-operator: v4.18.4
   ptp-operator: v4.18.0-202605270111
@@ -107,121 +107,121 @@
 "4.18.42":
   _first_seen_at: 2026-05-14T08:49:02Z
   _fast_promoted_at: 2026-05-20T12:42:51Z
-  cluster-logging: v6.4.6
-  lifecycle-agent: v4.18.5
+  cluster-logging: v6.4.4
+  lifecycle-agent: v4.18.4
   local-storage-operator: v4.18.0-202604232011
   lvms-operator: v4.18.4
   ptp-operator: v4.18.0-202605051544
-  redhat-oadp-operator: v1.4.10
+  redhat-oadp-operator: v1.4.9
   sriov-fec: v2.12.0
   sriov-network-operator: v4.18.0-202604232011
 "4.18.41":
   _first_seen_at: 2026-05-12T08:52:38Z
   _fast_promoted_at: 2026-05-12T21:52:22Z
-  cluster-logging: v6.4.6
-  lifecycle-agent: v4.18.5
+  cluster-logging: v6.4.4
+  lifecycle-agent: v4.18.4
   local-storage-operator: v4.18.0-202604232011
   lvms-operator: v4.18.4
   ptp-operator: v4.18.0-202605051544
-  redhat-oadp-operator: v1.4.10
+  redhat-oadp-operator: v1.4.9
   sriov-fec: v2.12.0
   sriov-network-operator: v4.18.0-202604232011
 "4.18.40":
   _first_seen_at: 2026-05-05T19:35:04Z
   _fast_promoted_at: 2026-05-06T21:28:22Z
-  cluster-logging: v6.4.6
-  lifecycle-agent: v4.18.5
+  cluster-logging: v6.4.4
+  lifecycle-agent: v4.18.3
   local-storage-operator: v4.18.0-202604232011
   lvms-operator: v4.18.4
   ptp-operator: v4.18.0-202605051544
-  redhat-oadp-operator: v1.4.10
+  redhat-oadp-operator: v1.4.9
   sriov-fec: v2.12.0
   sriov-network-operator: v4.18.0-202604232011
 "4.18.39":
   _first_seen_at: 2026-04-30T09:54:05Z
   _fast_promoted_at: 2026-05-06T10:11:00Z
-  cluster-logging: v6.4.6
-  lifecycle-agent: v4.18.5
+  cluster-logging: v6.4.4
+  lifecycle-agent: v4.18.3
   local-storage-operator: v4.18.0-202604232011
   lvms-operator: v4.18.4
   ptp-operator: v4.18.0-202605051544
-  redhat-oadp-operator: v1.4.10
+  redhat-oadp-operator: v1.4.9
   sriov-fec: v2.12.0
   sriov-network-operator: v4.18.0-202604232011
 "4.18.38":
   _first_seen_at: 2026-04-17T07:41:43Z
   _fast_promoted_at: 2026-04-22T09:22:44Z
-  cluster-logging: v6.4.6
-  lifecycle-agent: v4.18.5
+  cluster-logging: v6.4.4
+  lifecycle-agent: v4.18.3
   local-storage-operator: v4.18.0-202604150511
   lvms-operator: v4.18.4
   ptp-operator: v4.18.0-202604141055
-  redhat-oadp-operator: v1.4.10
+  redhat-oadp-operator: v1.4.9
   sriov-fec: v2.12.0
   sriov-network-operator: v4.18.0-202604141055
 "4.18.37":
   _first_seen_at: 2026-04-03T14:36:45Z
   _fast_promoted_at: 2026-04-09T09:42:25Z
-  cluster-logging: v6.4.6
-  lifecycle-agent: v4.18.5
+  cluster-logging: v6.4.3
+  lifecycle-agent: v4.18.3
   local-storage-operator: v4.18.0-202603262350
   lvms-operator: v4.18.4
   ptp-operator: v4.18.0-202603262350
-  redhat-oadp-operator: v1.4.10
+  redhat-oadp-operator: v1.4.9
   sriov-fec: v2.12.0
   sriov-network-operator: v4.18.0-202603311545
 "4.18.36":
   _first_seen_at: 2026-03-19T17:38:41Z
   _fast_promoted_at: 2026-03-25T06:09:29Z
-  cluster-logging: v6.4.5
-  lifecycle-agent: v4.18.5
+  cluster-logging: v6.4.3
+  lifecycle-agent: v4.18.2
   local-storage-operator: v4.18.0-202603152157
   lvms-operator: v4.18.4
   ptp-operator: v4.18.0-202603171536
-  redhat-oadp-operator: v1.4.10
+  redhat-oadp-operator: v1.4.9
   sriov-fec: v2.12.0
   sriov-network-operator: v4.18.0-202603111324
 "4.18.35":
   _first_seen_at: 2026-03-06T08:46:46Z
   _fast_promoted_at: 2026-03-11T06:24:59Z
-  cluster-logging: v6.4.5
-  lifecycle-agent: v4.18.4
+  cluster-logging: v6.4.3
+  lifecycle-agent: v4.18.2
   local-storage-operator: v4.18.0-202602272244
   lvms-operator: v4.18.4
   ptp-operator: v4.18.0-202602261953
-  redhat-oadp-operator: v1.4.10
+  redhat-oadp-operator: v1.4.8
   sriov-fec: v2.12.0
   sriov-network-operator: v4.18.0-202602261953
 "4.18.34":
   _first_seen_at: 2026-02-19T11:53:11Z
   _fast_promoted_at: 2026-02-25T15:52:59Z
-  cluster-logging: v6.4.4
-  lifecycle-agent: v4.18.4
+  cluster-logging: v6.4.2
+  lifecycle-agent: v4.18.2
   local-storage-operator: v4.18.0-202602132343
   lvms-operator: v4.18.4
   ptp-operator: v4.18.0-202602132343
-  redhat-oadp-operator: v1.4.9
+  redhat-oadp-operator: v1.4.8
   sriov-fec: v2.12.0
   sriov-network-operator: v4.18.0-202602132343
 "4.18.33":
   _first_seen_at: 2026-02-05T22:07:36Z
   _fast_promoted_at: 2026-02-11T06:01:20Z
-  cluster-logging: v6.4.4
-  lifecycle-agent: v4.18.4
+  cluster-logging: v6.4.2
+  lifecycle-agent: v4.18.1
   local-storage-operator: v4.18.0-202601302238
   lvms-operator: v4.18.4
   ptp-operator: v4.18.0-202602040315
-  redhat-oadp-operator: v1.4.9
+  redhat-oadp-operator: v1.4.8
   sriov-fec: v2.12.0
   sriov-network-operator: v4.18.0-202601302238
 "4.18.32":
   _first_seen_at: 2026-01-26T15:55:10Z
   _fast_promoted_at: 2026-02-03T14:06:00Z
-  cluster-logging: v6.4.4
-  lifecycle-agent: v4.18.3
+  cluster-logging: v6.4.2
+  lifecycle-agent: v4.18.1
   local-storage-operator: v4.18.0-202601302238
   lvms-operator: v4.18.4
   ptp-operator: v4.18.0-202601171614
-  redhat-oadp-operator: v1.4.9
+  redhat-oadp-operator: v1.4.7
   sriov-fec: v2.12.0
   sriov-network-operator: v4.18.0-202601302238
