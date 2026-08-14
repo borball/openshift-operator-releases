@@ -1,7 +1,7 @@
-# Last updated: 2026-08-14T13:19:52Z
+# Last updated: 2026-08-14T13:26:17Z
 "4.20.33":
-  _first_seen_at: 2026-08-06T21:07:02Z
-  _fast_promoted_at: 2026-08-14T13:19:52Z
+  _first_seen_at: 2026-08-06T10:28:47Z
+  _fast_promoted_at: 2026-08-11T10:55:33Z
   cluster-logging: v6.4.6
   lifecycle-agent: v4.20.5
   local-storage-operator: v4.20.0-202608040713
