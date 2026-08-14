@@ -10,6 +10,7 @@
   redhat-oadp-operator: v1.6.1
   sriov-network-operator: v4.22.0-202608050337
 "4.22.8":
+  _first_seen_at: 2026-07-31T14:41:52Z
   _fast_promoted_at: 2026-08-04T15:08:20Z
   cluster-logging: v6.6.0
   lifecycle-agent: v4.22.1
@@ -20,6 +21,7 @@
   sriov-fec: v2.12.0
   sriov-network-operator: v4.22.0-202607272042
 "4.22.7":
+  _first_seen_at: 2026-07-23T09:34:46Z
   _fast_promoted_at: 2026-07-30T21:22:01Z
   cluster-logging: v6.6.0
   lifecycle-agent: v4.22.1
@@ -41,6 +43,8 @@
   sriov-fec: v2.12.0
   sriov-network-operator: v4.22.0-202607151115
 "4.22.5":
+  _first_seen_at: 2026-07-10T20:55:14Z
+  _fast_promoted_at: 2026-07-14T13:23:55Z
   cluster-logging: v6.6.0
   lifecycle-agent: v4.22.0
   local-storage-operator: v4.22.0-202607151755
