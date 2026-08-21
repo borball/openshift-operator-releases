@@ -9,7 +9,7 @@ snapshots/
   <mm>.yaml    — machine-readable baselines per z-stream (all history kept)
   <mm>.md      — markdown table, latest 5 z-streams + older archive
 alerts/
-  <mm>-<date>.md  — created when operator versions drift from baseline
+  <mm>-<zstream>.md  — created once per drift incident; delete to re-arm detection
 pending/
   <mm>.yaml    — z-streams seen in the mirror but not yet in fast channel
 scripts/
@@ -68,7 +68,7 @@ yq '.["4.22.8"]["ptp-operator"]' snapshots/4.22.yaml
 
 ## Drift detection
 
-After a baseline is locked, the cron continues to run hourly. If any operator version in the catalog changes without a new OCP z-stream release, an alert file is created under `alerts/`. The alert includes the baseline, the current catalog version, and how long after the OCP release the drift was detected.
+After a baseline is locked, the cron continues to run hourly. If any operator version in the catalog changes without a new OCP z-stream release, an alert file is created under `alerts/`. The alert includes the baseline, the current catalog version, and how long after the OCP release the drift was detected. Only one alert file is created per (OCP minor, z-stream) drift incident — the cron won't re-alert hourly while the file exists, so deleting it is both how you close the alert and how you re-arm detection for that z-stream.
 
 Close an alert by investigating and deleting the file once confirmed.
 

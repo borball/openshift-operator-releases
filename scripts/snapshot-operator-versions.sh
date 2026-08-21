@@ -313,8 +313,14 @@ write_alert() {
   local -a drifts=("${@:3}")
 
   mkdir -p "$ALERTS_DIR"
-  # Hourly filename so each detection gets its own file
-  local alert_file="$ALERTS_DIR/${major_minor}-${NOW_HOUR}.md"
+  # One stable file per (major_minor, zstream) drift incident, not per hour —
+  # re-alerting every hour for the same unresolved drift buried real issues
+  # under noise. Deleting the file (once investigated) re-arms detection.
+  local alert_file="$ALERTS_DIR/${major_minor}-${zstream}.md"
+  if [[ -f "$alert_file" ]]; then
+    log "Drift for ${zstream} already alerted (${alert_file}) — skipping duplicate"
+    return 0
+  fi
 
   {
     echo "# ALERT: Operator version drift detected for OCP ${major_minor}"
