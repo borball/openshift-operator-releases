@@ -1,4 +1,14 @@
-# Last updated: 2026-08-25T13:07:01Z
+# Last updated: 2026-09-01T13:07:01Z
+"4.22.12":
+  _first_seen_at: 2026-08-27T21:07:01Z
+  _fast_promoted_at: 2026-09-01T13:07:01Z
+  cluster-logging: v6.6.0
+  lifecycle-agent: v4.22.1
+  local-storage-operator: v4.22.0-202608251608
+  lvms-operator: v4.22.0
+  ptp-operator: v4.22.0-202608251608
+  redhat-oadp-operator: v1.6.1
+  sriov-network-operator: v4.22.0-202608251608
 "4.22.11":
   _first_seen_at: 2026-08-21T21:07:01Z
   _fast_promoted_at: 2026-08-25T13:07:01Z
